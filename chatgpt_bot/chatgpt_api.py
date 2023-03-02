@@ -80,6 +80,8 @@ class Chat:
         except Exception as e:
             self.log("error", f"Error when sending request to OpenAI: {e}")
             resp_msg = ChatGptMessage(role="bot", content=f"Error when sending request to OpenAI: {e}")
+            # if failed, remove appended message
+            self.messages.pop()
         return resp_msg.content
 
     def limit_messages(self):
