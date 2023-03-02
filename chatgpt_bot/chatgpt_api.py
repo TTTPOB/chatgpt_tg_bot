@@ -67,6 +67,9 @@ class Chat:
     
     def log(self, level: str, msg: str):
         log(level, msg, self.logger)
+    
+    def clean_state(self):
+        self.messages.clear()
 
     async def chat(self, prompt: str) -> str:
         self.messages.append(ChatGptMessage(role="user", content=prompt))

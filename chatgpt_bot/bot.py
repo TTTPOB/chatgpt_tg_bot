@@ -38,4 +38,8 @@ class Bot:
             if event.sender_id not in self.chatgptbots:
                 self.chatgptbots[event.sender_id] = Chat(self.openai_apikey)
             chat = self.chatgptbots[event.sender_id]
+            if event.text == "/clear":
+                chat.clean_state()
+                await event.respond("cleaned bot brain")
+                return
             await event.respond(await chat.chat(event.text))
