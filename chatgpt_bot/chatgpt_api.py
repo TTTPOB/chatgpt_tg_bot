@@ -42,19 +42,18 @@ class Chat:
     apikey: str
     word_limit = 5000
     logger: logging.Logger
+    client: httpx.AsyncClient
 
     def __openapi_header(self) -> httpx.Headers:
         header = {"Authorization": f"Bearer {self.apikey}"}
         return httpx.Headers(header)
 
-    def __make_request(self, messages: List[ChatGptMessage]) -> ChatGptResponse:
-        header = self.__openapi_header()
+    async def __make_request(self, messages: List[ChatGptMessage]) -> ChatGptResponse:
         data = ChatGptRequest(model="gpt-3.5-turbo", messages=messages).dict()
         logging.debug(f"Sending request to OpenAI:\n{data}")
-        response = httpx.post(
+        response = await self.client.post(
             "https://api.openai.com/v1/chat/completions",
-            headers=header,
-            json=data,
+            json=data
         )
         logging.debug(f"Got response from OpenAI:\n{response.json()}")
 
@@ -64,18 +63,23 @@ class Chat:
         self.messages = []
         self.apikey = apikey
         self.logger = get_logger("chatgpt_api", log_level)
+        self.client = httpx.AsyncClient(headers=self.__openapi_header())
     
     def log(self, level: str, msg: str):
         log(level, msg, self.logger)
 
-    def chat(self, prompt: str) -> str:
+    async def chat(self, prompt: str) -> str:
         self.messages.append(ChatGptMessage(role="user", content=prompt))
         self.limit_messages()
         self.log("debug", f"Sending request to OpenAI: {self.messages}")
-        completion = self.__make_request(self.messages)
-        resp_msg = completion.choices[0].message
-        self.log("debug", f"Got response from OpenAI: {resp_msg}")
-        self.messages.append(resp_msg)
+        try: 
+            completion = await self.__make_request(self.messages)
+            resp_msg = completion.choices[0].message
+            self.log("debug", f"Got response from OpenAI: {resp_msg}")
+            self.messages.append(resp_msg)
+        except Exception as e:
+            self.log("error", f"Error when sending request to OpenAI: {e}")
+            resp_msg = ChatGptMessage(role="bot", content=f"Error when sending request to OpenAI: {e}")
         return resp_msg.content
 
     def limit_messages(self):

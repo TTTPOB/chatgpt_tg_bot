@@ -38,4 +38,4 @@ class Bot:
             if event.sender_id not in self.chatgptbots:
                 self.chatgptbots[event.sender_id] = Chat(self.openai_apikey)
             chat = self.chatgptbots[event.sender_id]
-            await event.respond(chat.chat(event.text))
+            await event.respond(await chat.chat(event.text))
