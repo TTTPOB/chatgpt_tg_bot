@@ -43,13 +43,15 @@ class Bot:
             if event.sender_id not in self.chatgptbots:
                 self.chatgptbots[event.sender_id] = Chat(self.openai_apikey, self.logger, event.sender_id)
             chat = self.chatgptbots[event.sender_id]
+            text = ''
             if event.text == "/clear":
                 chat.clean_state()
-                await event.respond("cleaned bot brain")
-                return
-            if event.text.startswith("/set_word_limit"):
+                text = "Cleaned bot brain."
+            elif event.text.startswith("/set_token_limit"):
                 l = int(event.text.split(" ")[1])
                 chat.set_token_limit(l)
-                await event.respond(f"set word limit to {l}")
-                return
-            await event.respond(await chat.chat(event.text))
+                text = 'Set token limit to ' + str(l)
+            else:
+                text = await chat.chat(event.text)
+            await event.respond(text)
+            self.log("info", f"Sent response to {event.sender_id}: {text}")

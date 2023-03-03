@@ -62,8 +62,14 @@ class Chat:
             )
             self.log("debug", f"Got response from OpenAI:\n{response.json()}")
 
-            resp = ChatGptResponse.parse_obj(response.json()).choices[0].message
+            try:
+                resp = ChatGptResponse.parse_obj(response.json()).choices[0].message
+            except Exception as e:
+                error_msg = f"Error while parsing response from OpenAI:\n{e};\n\nRaw response:\n{response.json()}"
+                self.log("error", error_msg)
+                resp = ChatGptMessage(role="system", content=error_msg)
         except Exception as e:
+            self.log("error", f"Error while sending request to OpenAI: {e}")
             resp = ChatGptMessage(role="system", content=f"Error: {e}")
         return resp
 
