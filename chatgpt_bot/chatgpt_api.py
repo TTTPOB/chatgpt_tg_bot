@@ -77,7 +77,8 @@ class Chat:
         self.messages = []
         self.apikey = apikey
         self.logger = parent_logger.getChild(f"chat-{chatid}")
-        self.client = httpx.AsyncClient(headers=self.__openapi_header())
+        # timeout set to 10s
+        self.client = httpx.AsyncClient(headers=self.__openapi_header(), timeout=30.0)
 
     def log(self, level: str, msg: str):
         self.logger.log(level_map[level], msg)
@@ -109,7 +110,10 @@ class Chat:
     def __limit_messages(self):
         # if messages content sum are too long, remove the oldest messages
         # but if there is only one message, don't remove it
-        self.log('debug', f"current token count: {self.__get_token_count()}")
+        self.log("debug", f"current token count: {self.__get_token_count()}")
         while self.__get_token_count() > self.token_limit and len(self.messages) > 1:
             self.messages.pop(0)
-            self.log('debug', f"reached token limit, cleaning, current token count: {self.__get_token_count()}")
+            self.log(
+                "debug",
+                f"reached token limit, cleaning, current token count: {self.__get_token_count()}",
+            )
