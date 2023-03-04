@@ -1,9 +1,10 @@
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 import httpx
 from pydantic import BaseModel
 from .log import level_map
 import logging
 import tiktoken as tk
+from io import BytesIO
 
 
 class ChatGptMessage(BaseModel):
@@ -16,14 +17,14 @@ class ChatGptRequest(BaseModel):
     messages: List[ChatGptMessage]
 
 
-class Choice(BaseModel):
+class ChatGptMessageChoice(BaseModel):
     index: int
     finish_reason: Union[str, None]
     message: Optional[ChatGptMessage]
     messages: Optional[List[ChatGptMessage]]
 
 
-class Usage(BaseModel):
+class ChatGptUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -34,8 +35,12 @@ class ChatGptResponse(BaseModel):
     object: str
     created: int
     model: str
-    choices: List[Choice]
-    usage: Usage
+    choices: List[ChatGptMessageChoice]
+    usage: ChatGptUsage
+
+
+class WhisperResponse(BaseModel):
+    text: str
 
 
 class Chat:
@@ -53,13 +58,24 @@ class Chat:
     def set_token_limit(self, l: int) -> None:
         self.token_limit = l
 
-    async def __make_request(self, messages: List[ChatGptMessage]) -> ChatGptResponse:
+    def __init__(self, apikey: str, parent_logger: logging.Logger, chatid: int) -> None:
+        self.messages = []
+        self.apikey = apikey
+        self.logger = parent_logger.getChild(f"chat-{chatid}")
+        # timeout set to 10s
+        self.client = httpx.AsyncClient(
+            headers=self.__openapi_header(),
+            timeout=30.0,
+            base_url="https://api.openai.com/v1/",
+        )
+
+    async def __make_chatgpt_request(
+        self, messages: List[ChatGptMessage]
+    ) -> ChatGptResponse:
         data = ChatGptRequest(model="gpt-3.5-turbo", messages=messages).dict()
         try:
-            self.log("debug", f"Sending request to OpenAI:\n{data}")
-            response = await self.client.post(
-                "https://api.openai.com/v1/chat/completions", json=data
-            )
+            self.log("debug", f"Sending request to OpenAI ChatGPT:\n{data}")
+            response = await self.client.post("/chat/completions", json=data)
             self.log("debug", f"Got response from OpenAI:\n{response.json()}")
 
             try:
@@ -73,12 +89,31 @@ class Chat:
             resp = ChatGptMessage(role="system", content=f"Error: {e}")
         return resp
 
-    def __init__(self, apikey: str, parent_logger: logging.Logger, chatid: int) -> None:
-        self.messages = []
-        self.apikey = apikey
-        self.logger = parent_logger.getChild(f"chat-{chatid}")
-        # timeout set to 10s
-        self.client = httpx.AsyncClient(headers=self.__openapi_header(), timeout=30.0)
+    async def __make_whisper_request(self, audio: BytesIO) -> ChatGptMessage:
+        try:
+            self.log("debug", "Sending request to Whisper: audio file")
+            response = await self.client.post(
+                "/audio/transcriptions",
+                data={
+                    "model": "whisper-1",
+                },
+                files={"file": ("audio.m4a", audio)},
+            )
+            self.log("debug", f"Got response from OpenAI Whisper:\n{response.json()}")
+            try:
+                resp = WhisperResponse.parse_obj(response.json())
+                chatgpt_msg = ChatGptMessage(role="user", content=resp.text)
+            except Exception as e:
+                error_msg = f"Error while parsing response from OpenAI Whisper:\n{e};\n\nRaw response:\n{response.json()}"
+                self.log("error", error_msg)
+                resp = WhisperResponse(text=error_msg)
+                chatgpt_msg = ChatGptMessage(role="system", content=error_msg)
+        except Exception as e:
+            error_msg = f"Error while sending request to OpenAI Whisper: {e}"
+            self.log("error", error_msg)
+            resp = WhisperResponse(text=error_msg)
+            chatgpt_msg = ChatGptMessage(role="system", content=error_msg)
+        return chatgpt_msg
 
     def log(self, level: str, msg: str):
         self.logger.log(level_map[level], msg)
@@ -90,7 +125,7 @@ class Chat:
         self.messages.append(ChatGptMessage(role="user", content=prompt))
         self.__limit_messages()
         self.log("debug", f"Sending request to OpenAI: {self.messages}")
-        msg = await self.__make_request(self.messages)
+        msg = await self.__make_chatgpt_request(self.messages)
         if msg.role != "system":
             self.messages.append(msg)
         elif msg.role == "system":
@@ -117,3 +152,10 @@ class Chat:
                 "debug",
                 f"reached token limit, cleaning, current token count: {self.__get_token_count()}",
             )
+
+    async def handle_voice(self, audio: BytesIO) -> Tuple[str, str]:
+        msg = await self.__make_whisper_request(audio)
+        if msg.role == "system":
+            return ("system error", msg.content)
+        else:
+            return (await self.chat(msg.content), msg.content)
